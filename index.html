@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Live Text to HTML Converter with OL support</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 2rem; background: #f9f9f9; }
+  #container { margin-top: 1rem; }
+  pre#output {
+    background: #eee;
+    padding: 15px;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: Consolas, monospace;
+  }
+  button {
+    cursor: pointer;
+    padding: 8px 14px;
+    margin-top: 10px;
+    border-radius: 5px;
+    border: none;
+    background-color: #009cff;
+    color: white;
+    font-size: 1rem;
+  }
+  button:disabled {
+    background-color: #777;
+    cursor: default;
+  }
+</style>
+</head>
+<body>
+
+<h2>Live Text to HTML Converter with OL/UL support</h2>
+<textarea id="inputText" rows="12" style="width:100%; font-family: monospace; font-size: 1rem;"
+placeholder="Paste or type your text here..."></textarea>
+
+<div id="container"></div>
+
+<script>
+function escapeHTML(html) {
+  return html.replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+             .replace(/>/g, "&gt;");
+}
+
+// Helper: check if line starts with number + dot + space, e.g. "1. ", "2. "
+function startsWithNumber(line) {
+  return /^\d+\.\s/.test(line);
+}
+
+function convertToHTML(inputText) {
+  const lines = inputText.trim().split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  const output = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const nextLine = lines[i + 1] || "";
+
+    const startsWithH1 = line.startsWith("<h1>");
+    const startsWithH2 = line.startsWith("<h2>");
+
+    if (startsWithH1 || startsWithH2) {
+      const headingTag = startsWithH1 ? "h1" : "h2";
+      const content = line.replace(/^<h[12]>/, "").trim();
+
+      if (headingTag === "h1") {
+        output.push(`<h1 style="border-bottom: 3px #009cff solid; text-align: center">${content}</h1>`);
+      } else {
+        output.push(`<h2>${content}</h2>`);
+      }
+
+      if (nextLine && !nextLine.startsWith("<h1>") && !nextLine.startsWith("<h2>")) {
+        output.push(`<p>${nextLine}</p>`);
+        i += 2;
+      } else {
+        i++;
+      }
+      continue;
+    }
+
+    // OL list detection: current and next line follow the short + long pattern AND current line starts with number.
+    const currentIsShort = line.length < 60 && !startsWithH1 && !startsWithH2;
+    const nextIsLong = nextLine.length >= 60 && !startsWithH1 && !startsWithH2;
+
+    if (currentIsShort && nextIsLong && startsWithNumber(line)) {
+      // Collect all consecutive numbered short + long pairs
+      const olItems = [];
+
+      while (i < lines.length) {
+        const title = lines[i];
+        const desc = lines[i + 1] || "";
+
+        const validPair = title.length < 60 && desc.length >= 60 &&
+                          !title.startsWith("<h1>") && !title.startsWith("<h2>") &&
+                          !desc.startsWith("<h1>") && !desc.startsWith("<h2>") &&
+                          startsWithNumber(title);
+
+        if (!validPair) break;
+
+        // Remove the number prefix from title for nicer display
+        const cleanTitle = title.replace(/^\d+\.\s*/, '');
+
+        olItems.push(`<li>${cleanTitle}<br>${desc}</li>`);
+        i += 2;
+      }
+
+      output.push("<ol>");
+      output.push(...olItems);
+      output.push("</ol>");
+
+      const lookAhead = lines[i] || "";
+      const nextIsP = lookAhead.length >= 60 && !lookAhead.startsWith("<h1>") && !lookAhead.startsWith("<h2>");
+      if (!nextIsP) {
+        output.push("<br>");
+      }
+      continue;
+    }
+
+    // UL list detection (same as before but only if NOT starting with number)
+    if (currentIsShort && nextIsLong && !startsWithNumber(line)) {
+      const ulItems = [];
+
+      while (i < lines.length) {
+        const title = lines[i];
+        const desc = lines[i + 1] || "";
+
+        const validPair = title.length < 60 && desc.length >= 60 &&
+                          !title.startsWith("<h1>") && !title.startsWith("<h2>") &&
+                          !desc.startsWith("<h1>") && !desc.startsWith("<h2>") &&
+                          !startsWithNumber(title);
+
+        if (!validPair) break;
+
+        ulItems.push(`<li>${title}<br>${desc}</li>`);
+        i += 2;
+      }
+
+      output.push("<ul>");
+      output.push(...ulItems);
+      output.push("</ul>");
+
+      const lookAhead = lines[i] || "";
+      const nextIsP = lookAhead.length >= 60 && !lookAhead.startsWith("<h1>") && !lookAhead.startsWith("<h2>");
+      if (!nextIsP) {
+        output.push("<br>");
+      }
+      continue;
+    }
+
+    // Default: paragraph
+    output.push(`<p>${line}</p>`);
+    i++;
+  }
+
+  return output.join("\n");
+}
+
+function addCopyButton(container) {
+  // Remove existing button if any
+  const existingBtn = container.querySelector("button");
+  if (existingBtn) existingBtn.remove();
+
+  const btn = document.createElement("button");
+  btn.textContent = "Copy Code";
+
+  btn.addEventListener("click", () => {
+    const codeText = document.getElementById("output").innerText;
+    navigator.clipboard.writeText(codeText).then(() => {
+      const original = btn.textContent;
+      btn.textContent = "Copied!";
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.disabled = false;
+      }, 2000);
+    });
+  });
+
+  container.insertBefore(btn, container.firstChild);
+}
+
+const inputTextarea = document.getElementById("inputText");
+const container = document.getElementById("container");
+
+inputTextarea.addEventListener("input", () => {
+  const inputText = inputTextarea.value.trim();
+
+  if (!inputText) {
+    container.innerHTML = ""; // Clear output if input empty
+    return;
+  }
+
+  const htmlOutput = convertToHTML(inputText);
+  const escapedOutput = escapeHTML(htmlOutput);
+
+  container.innerHTML = `<pre id="output">${escapedOutput}</pre>`;
+  addCopyButton(container);
+});
+</script>
+
+</body>
+</html>
