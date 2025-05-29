@@ -52,101 +52,152 @@ function startsWithNumber(line) {
 }
 
 function convertToHTML(inputText) {
-  const rawLines = inputText.split(/\r?\n/);
-
+  const lines = inputText.trim().split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
   const output = [];
   let i = 0;
 
-  while (i < rawLines.length) {
-    let line = rawLines[i].trim();
+  function startsWithNumber(line) {
+    return /^\d+\.\s/.test(line);
+  }
 
-    if (line === "") {
-      i++;
-      continue;
-    }
+  while (i < lines.length) {
+    const line = lines[i];
+    const nextLine = lines[i + 1] || "";
+    const nextNextLine = lines[i + 2] || "";
 
-    // Headings
-    if (line.startsWith("<h1>") || line.startsWith("<h2>")) {
-      const isH1 = line.startsWith("<h1>");
-      const tag = isH1 ? "h1" : "h2";
-      const content = line.replace(/^<h[12]>/, "").replace(/<\/h[12]>$/, "").trim();
+    const startsWithH1 = line.startsWith("<h1>");
+    const startsWithH2 = line.startsWith("<h2>");
 
-      if (isH1) {
+    if (startsWithH1 || startsWithH2) {
+      const headingTag = startsWithH1 ? "h1" : "h2";
+      const content = line.replace(/^<h[12]>/, "").trim();
+
+      if (headingTag === "h1") {
         output.push(`<h1 style="border-bottom: 3px #009cff solid; text-align: center">${content}</h1>`);
       } else {
         output.push(`<h2>${content}</h2>`);
       }
-      i++;
+
+      if (nextLine && !nextLine.startsWith("<h1>") && !nextLine.startsWith("<h2>")) {
+        output.push(`<p>${nextLine}</p>`);
+        i += 2;
+      } else {
+        i++;
+      }
       continue;
     }
 
-    // Numbered OL list processing with stop condition on heading inside list
-    if (startsWithNumber(line)) {
+    // OL list detection with 3-line support:
+    if (
+      line.length < 60 &&
+      startsWithNumber(line) &&
+      nextLine.length >= 60 &&
+      !startsWithH1 &&
+      !startsWithH2 &&
+      !nextLine.startsWith("<h1>") &&
+      !nextLine.startsWith("<h2>")
+    ) {
       const olItems = [];
 
-      while (i < rawLines.length && startsWithNumber(rawLines[i].trim())) {
-        // Title line, remove number prefix
-        let numberLine = rawLines[i].trim();
-        const title = numberLine.replace(/^\d+\.\s*/, "");
-        i++;
+      while (i < lines.length) {
+        const title = lines[i];
+        const desc1 = lines[i + 1] || "";
+        const desc2 = lines[i + 2] || "";
 
-        const itemParagraphs = [];
-        let paraLines = [];
+        const validPair =
+          title.length < 60 &&
+          desc1.length >= 60 &&
+          !title.startsWith("<h1>") &&
+          !title.startsWith("<h2>") &&
+          !desc1.startsWith("<h1>") &&
+          !desc1.startsWith("<h2>") &&
+          startsWithNumber(title);
 
-        while (i < rawLines.length) {
-          const currentLine = rawLines[i].trim();
+        if (!validPair) break;
 
-          // Stop if next line is numbered item or heading tag
-          if (startsWithNumber(currentLine) || currentLine.startsWith("<h1>") || currentLine.startsWith("<h2>")) {
-            break;
-          }
+        const cleanTitle = title.replace(/^\d+\.\s*/, '');
 
-          if (currentLine === "") {
-            if (paraLines.length) {
-              itemParagraphs.push(paraLines.join(" "));
-              paraLines = [];
-            }
-          } else {
-            paraLines.push(currentLine);
-          }
-          i++;
-        }
-        if (paraLines.length) {
-          itemParagraphs.push(paraLines.join(" "));
+        // Compose li inner HTML with double <br> after 2nd line
+        let liContent = cleanTitle + "<br>" + desc1 + "<br><br>";
+
+        if (desc2 && desc2.length > 0 && !startsWithNumber(desc2) && !desc2.startsWith("<h1>") && !desc2.startsWith("<h2>")) {
+          liContent += desc2 + "<br>";
+          i += 3;
+        } else {
+          i += 2;
         }
 
-        // Build liContent with 1 <br> after title, then <br><br> between subsequent paragraphs
-        let liContent = title;
-        if (itemParagraphs.length > 0) {
-          liContent += "<br>" + itemParagraphs[0]; // first break is single <br>
-        }
-        for (let j = 1; j < itemParagraphs.length; j++) {
-          liContent += "<br><br>" + itemParagraphs[j]; // subsequent breaks are double <br><br>
-        }
-
-        // Check if this is the last item
-		const isLast = (i >= rawLines.length) || !startsWithNumber(rawLines[i].trim());
-		if (isLast) {
-		  olItems.push(`<li>${liContent}</li>`);
-		} else {
-		  olItems.push(`<li>${liContent}</li><br>`);
-		}
-		  
+        olItems.push(`<li>${liContent}</li>`);
       }
 
+      // Add <br> after each <li> except last inside <ol>
+      const olWithBrs = olItems.map((li, idx) =>
+        idx === olItems.length - 1 ? li : li + "<br>"
+      );
+
       output.push("<ol>");
-      output.push(...olItems);
+      output.push(...olWithBrs);
       output.push("</ol>");
+
+      const lookAhead = lines[i] || "";
+      const nextIsP = lookAhead.length >= 60 && !lookAhead.startsWith("<h1>") && !lookAhead.startsWith("<h2>");
+      if (!nextIsP) {
+        output.push("<br>");
+      }
       continue;
     }
 
-    // Default paragraph
+    // UL list detection
+    if (
+      line.length < 60 &&
+      nextLine.length >= 60 &&
+      !startsWithNumber(line) &&
+      !startsWithH1 &&
+      !startsWithH2 &&
+      !nextLine.startsWith("<h1>") &&
+      !nextLine.startsWith("<h2>")
+    ) {
+      const ulItems = [];
+
+      while (i < lines.length) {
+        const title = lines[i];
+        const desc = lines[i + 1] || "";
+
+        const validPair =
+          title.length < 60 &&
+          desc.length >= 60 &&
+          !title.startsWith("<h1>") &&
+          !title.startsWith("<h2>") &&
+          !desc.startsWith("<h1>") &&
+          !desc.startsWith("<h2>") &&
+          !startsWithNumber(title);
+
+        if (!validPair) break;
+
+        ulItems.push(`<li>${title}<br>${desc}</li>`);
+        i += 2;
+      }
+
+      output.push("<ul>");
+      output.push(...ulItems);
+      output.push("</ul>");
+
+      const lookAhead = lines[i] || "";
+      const nextIsP = lookAhead.length >= 60 && !lookAhead.startsWith("<h1>") && !lookAhead.startsWith("<h2>");
+      if (!nextIsP) {
+        output.push("<br>");
+      }
+      continue;
+    }
+
+    // Default: paragraph
     output.push(`<p>${line}</p>`);
     i++;
   }
 
   return output.join("\n");
 }
+
 
 
 function addCopyButton(container) {
