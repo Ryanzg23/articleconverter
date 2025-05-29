@@ -52,112 +52,102 @@ function startsWithNumber(line) {
 }
 
 function convertToHTML(inputText) {
-  const lines = inputText.trim().split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  const rawLines = inputText.split(/\r?\n/);
+
   const output = [];
   let i = 0;
 
-  while (i < lines.length) {
-    const line = lines[i];
-    const nextLine = lines[i + 1] || "";
+  while (i < rawLines.length) {
+    let line = rawLines[i].trim();
 
-    const startsWithH1 = line.startsWith("<h1>");
-    const startsWithH2 = line.startsWith("<h2>");
+    if (line === "") {
+      i++;
+      continue;
+    }
 
-    if (startsWithH1 || startsWithH2) {
-      const headingTag = startsWithH1 ? "h1" : "h2";
-      const content = line.replace(/^<h[12]>/, "").trim();
+    // Headings
+    if (line.startsWith("<h1>") || line.startsWith("<h2>")) {
+      const isH1 = line.startsWith("<h1>");
+      const tag = isH1 ? "h1" : "h2";
+      const content = line.replace(/^<h[12]>/, "").replace(/<\/h[12]>$/, "").trim();
 
-      if (headingTag === "h1") {
+      if (isH1) {
         output.push(`<h1 style="border-bottom: 3px #009cff solid; text-align: center">${content}</h1>`);
       } else {
         output.push(`<h2>${content}</h2>`);
       }
-
-      if (nextLine && !nextLine.startsWith("<h1>") && !nextLine.startsWith("<h2>")) {
-        output.push(`<p>${nextLine}</p>`);
-        i += 2;
-      } else {
-        i++;
-      }
+      i++;
       continue;
     }
 
-    // OL list detection: current and next line follow the short + long pattern AND current line starts with number.
-    const currentIsShort = line.length < 60 && !startsWithH1 && !startsWithH2;
-    const nextIsLong = nextLine.length >= 60 && !startsWithH1 && !startsWithH2;
-
-    if (currentIsShort && nextIsLong && startsWithNumber(line)) {
-      // Collect all consecutive numbered short + long pairs
+    // Numbered OL list processing with stop condition on heading inside list
+    if (startsWithNumber(line)) {
       const olItems = [];
 
-      while (i < lines.length) {
-        const title = lines[i];
-        const desc = lines[i + 1] || "";
+      while (i < rawLines.length && startsWithNumber(rawLines[i].trim())) {
+        // Title line, remove number prefix
+        let numberLine = rawLines[i].trim();
+        const title = numberLine.replace(/^\d+\.\s*/, "");
+        i++;
 
-        const validPair = title.length < 60 && desc.length >= 60 &&
-                          !title.startsWith("<h1>") && !title.startsWith("<h2>") &&
-                          !desc.startsWith("<h1>") && !desc.startsWith("<h2>") &&
-                          startsWithNumber(title);
+        const itemParagraphs = [];
+        let paraLines = [];
 
-        if (!validPair) break;
+        while (i < rawLines.length) {
+          const currentLine = rawLines[i].trim();
 
-        // Remove the number prefix from title for nicer display
-        const cleanTitle = title.replace(/^\d+\.\s*/, '');
+          // Stop if next line is numbered item or heading tag
+          if (startsWithNumber(currentLine) || currentLine.startsWith("<h1>") || currentLine.startsWith("<h2>")) {
+            break;
+          }
 
-        olItems.push(`<li>${cleanTitle}<br>${desc}</li>`);
-        i += 2;
+          if (currentLine === "") {
+            if (paraLines.length) {
+              itemParagraphs.push(paraLines.join(" "));
+              paraLines = [];
+            }
+          } else {
+            paraLines.push(currentLine);
+          }
+          i++;
+        }
+        if (paraLines.length) {
+          itemParagraphs.push(paraLines.join(" "));
+        }
+
+        // Build liContent with 1 <br> after title, then <br><br> between subsequent paragraphs
+        let liContent = title;
+        if (itemParagraphs.length > 0) {
+          liContent += "<br>" + itemParagraphs[0]; // first break is single <br>
+        }
+        for (let j = 1; j < itemParagraphs.length; j++) {
+          liContent += "<br><br>" + itemParagraphs[j]; // subsequent breaks are double <br><br>
+        }
+
+        // Check if this is the last item
+		const isLast = (i >= rawLines.length) || !startsWithNumber(rawLines[i].trim());
+		if (isLast) {
+		  olItems.push(`<li>${liContent}</li>`);
+		} else {
+		  olItems.push(`<li>${liContent}</li><br>`);
+		}
+		  
       }
 
       output.push("<ol>");
       output.push(...olItems);
       output.push("</ol>");
-
-      const lookAhead = lines[i] || "";
-      const nextIsP = lookAhead.length >= 60 && !lookAhead.startsWith("<h1>") && !lookAhead.startsWith("<h2>");
-      if (!nextIsP) {
-        output.push("<br>");
-      }
       continue;
     }
 
-    // UL list detection (same as before but only if NOT starting with number)
-    if (currentIsShort && nextIsLong && !startsWithNumber(line)) {
-      const ulItems = [];
-
-      while (i < lines.length) {
-        const title = lines[i];
-        const desc = lines[i + 1] || "";
-
-        const validPair = title.length < 60 && desc.length >= 60 &&
-                          !title.startsWith("<h1>") && !title.startsWith("<h2>") &&
-                          !desc.startsWith("<h1>") && !desc.startsWith("<h2>") &&
-                          !startsWithNumber(title);
-
-        if (!validPair) break;
-
-        ulItems.push(`<li>${title}<br>${desc}</li>`);
-        i += 2;
-      }
-
-      output.push("<ul>");
-      output.push(...ulItems);
-      output.push("</ul>");
-
-      const lookAhead = lines[i] || "";
-      const nextIsP = lookAhead.length >= 60 && !lookAhead.startsWith("<h1>") && !lookAhead.startsWith("<h2>");
-      if (!nextIsP) {
-        output.push("<br>");
-      }
-      continue;
-    }
-
-    // Default: paragraph
+    // Default paragraph
     output.push(`<p>${line}</p>`);
     i++;
   }
 
   return output.join("\n");
 }
+
 
 function addCopyButton(container) {
   // Remove existing button if any
