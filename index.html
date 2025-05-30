@@ -118,14 +118,15 @@ function convertToHTML(inputText) {
         const cleanTitle = title.replace(/^\d+\.\s*/, '');
 
         // Compose li inner HTML with double <br> after 2nd line
-        let liContent = cleanTitle + "<br>" + desc1 + "<br><br>";
+        let liContent = cleanTitle + "<br>" + desc1;
 
-        if (desc2 && desc2.length > 0 && !startsWithNumber(desc2) && !desc2.startsWith("<h1>") && !desc2.startsWith("<h2>")) {
-          liContent += desc2 + "<br>";
-          i += 3;
-        } else {
-          i += 2;
-        }
+		if (desc2 && desc2.length > 0 && !startsWithNumber(desc2) && !desc2.startsWith("<h1>") && !desc2.startsWith("<h2>")) {
+		  liContent += "<br><br>" + desc2 + "<br>";
+		  i += 3;
+		} else {
+		  i += 2;
+		}
+
 
         olItems.push(`<li>${liContent}</li>`);
       }
